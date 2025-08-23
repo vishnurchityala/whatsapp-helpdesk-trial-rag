@@ -1,2 +1,2 @@
-from .generate_handler import generate
-from .retrieve_handler import retrieve
+from .retrieve_handler import retrieve_documents
+from .generate_handler import generate_response
