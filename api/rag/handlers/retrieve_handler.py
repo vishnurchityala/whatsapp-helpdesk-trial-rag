@@ -1,78 +1,64 @@
 from langchain_community.document_loaders import TextLoader
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
-from dotenv import load_dotenv
+from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone, ServerlessSpec
+from langdetect import detect
 import os
+import logging
+from dotenv import load_dotenv
 
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 
+# Load environment variables
 hf_token = os.getenv("HF_TOKEN")
+pc_api_key = os.getenv("PINECONE_API_KEY")
 
-def build_vectorstore(language: str, path: str):
-    loader = TextLoader(path)
+# Initialize Pinecone client
+pc = Pinecone(api_key=pc_api_key)
+
+# Function to retrieve documents using Pinecone
+def retrieve_documents(question: str) -> dict:
+    """
+    Retrieve relevant context from Pinecone vector store using embeddings and similarity search.
+
+    Args:
+        question (str): The query string to search for.
+
+    Returns:
+        dict: {"context": retrieved_docs, "detected_language": detected_language}
+    """
+    # Detect language of the question
+    detected_language = detect(question)
+    logging.debug(f"Detected language: {detected_language}")
+
+    # Always use English documents for retrieval
+    path_to_document = "api/rag/data/english_data.txt"
+    index_name = "rag-english"
+
+    # Load documents and create embeddings
+    loader = TextLoader(path_to_document)
     docs = loader.load()
-
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200
-    )
-    all_splits = text_splitter.split_documents(docs)
-
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         model_kwargs={"token": hf_token}
     )
 
-    persist_dir = f"api/rag/data/chroma_{language.lower()}"
-    os.makedirs(persist_dir, exist_ok=True)
-
-    vectorstore = Chroma.from_documents(
-        documents=all_splits,
-        embedding=embeddings,
-        persist_directory=persist_dir
-    )
-    
-    return vectorstore
-
-def retrieve(state: dict):
-    """
-    Retrieve relevant context from a language-specific document
-    using embeddings and similarity search.
-
-    Args:
-        state (dict): Dictionary containing at least:
-            - 'language': The language of the document (Gujarati, English, Hindi).
-            - 'question': The query string to search for.
-
-    Returns:
-        dict: A dictionary containing the retrieved context as {"context": retrieved_docs}.
-    """
-
-    language_document_map = {
-        "Gujarati": "api/rag/data/gujarati_data.txt",
-        "English": "api/rag/data/english_data.txt",
-        "Hindi": "api/rag/data/hindi_data.txt",
-    }
-
-    path_to_document = language_document_map.get(state["language"], None)
-
-    if not path_to_document:
-        raise ValueError(f"Unsupported language: {state['language']}")
-
-    persist_dir = f"api/rag/data/chroma_{state['language'].lower()}"
-    if not os.path.exists(persist_dir):
-        vectorstore = build_vectorstore(state["language"], path_to_document)
+    # Create or load Pinecone vector store
+    if index_name not in [index.name for index in pc.list_indexes()]:
+        vectorstore = PineconeVectorStore.from_documents(
+            documents=docs,
+            embedding=embeddings,
+            index_name=index_name
+        )
     else:
-        embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-            model_kwargs={"token": hf_token}
-        )
-        vectorstore = Chroma(
-            persist_directory=persist_dir,
-            embedding_function=embeddings
+        vectorstore = PineconeVectorStore(
+            index_name=index_name,
+            embedding=embeddings
         )
 
-    retrieved_docs = vectorstore.similarity_search(state["question"], k=10)
-    return {"context": retrieved_docs}
+    # Perform similarity search
+    retrieved_docs = vectorstore.similarity_search(question, k=5)
+    return {"context": retrieved_docs, "detected_language": detected_language}
