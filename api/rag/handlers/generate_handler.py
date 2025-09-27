@@ -91,10 +91,4 @@ def generate_response(context: list, question: str, language: str) -> dict:
     response = llm.invoke(template)
     logging.debug(f"Generated response: {response.content}")
 
-    # Translate the response to the target language if necessary
-    if language != "English":
-        translated_response = translator.translate(response.content, dest=language[:2].lower()).text
-        logging.debug(f"Translated response to {language}: {translated_response}")
-        return {"answer": translated_response}
-
     return {"answer": response.content}
