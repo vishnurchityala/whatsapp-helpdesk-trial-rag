@@ -66,5 +66,5 @@ def retrieve_documents(question: str) -> dict:
     )
 
     # Perform similarity search
-    retrieved_docs = vectorstore.similarity_search(question, k=5)
+    retrieved_docs = vectorstore.similarity_search(question, k=25)
     return {"context": retrieved_docs, "detected_language": detected_language}
