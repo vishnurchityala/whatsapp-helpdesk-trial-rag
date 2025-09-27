@@ -21,6 +21,12 @@ RUN apt-get update \
        libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# --- Environment variables (defaults; override with -e or --env-file) ---
+ENV ENV=prod \
+    GOOGLE_API_KEY="" \
+    PINECONE_API_KEY="" \
+    LANGCHAIN_API_KEY=""
+
 # Install Python dependencies first to leverage Docker layer caching
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt

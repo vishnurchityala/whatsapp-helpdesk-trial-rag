@@ -3,27 +3,35 @@ import logging
 import os
 from dotenv import load_dotenv
 from googletrans import Translator
-from langchain.prompts import PromptTemplate
-from langchain_core.runnables import RunnableLambda
-from langchain_core.output_parsers import StrOutputParser
 
 load_dotenv()
+
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
-
-load_dotenv()
 
 # Load environment variables
 GOOGLE_GEMINI_API_KEY = os.getenv("GOOGLE_GEMINI_API_KEY")
 
-# Initialize the LLM
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    google_api_key=GOOGLE_GEMINI_API_KEY
-)
+# Initialize the LLM once at module level
+if not GOOGLE_GEMINI_API_KEY:
+    raise ValueError("GOOGLE_GEMINI_API_KEY environment variable is required")
 
-# Initialize the translator
+try:
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        google_api_key=GOOGLE_GEMINI_API_KEY
+    )
+    logging.info("ChatGoogleGenerativeAI initialized successfully")
+except Exception as e:
+    logging.error(f"Failed to initialize ChatGoogleGenerativeAI: {e}")
+    # Fallback: try without explicit key (rely on environment)
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash"
+    )
+
+# Initialize the translator once at module level
 translator = Translator()
+logging.info("Translator initialized successfully")
 
 # Function to generate response using Google Gemini Flash
 def generate_response(context: list, question: str, language: str) -> dict:
@@ -90,15 +98,3 @@ def generate_response(context: list, question: str, language: str) -> dict:
         return {"answer": translated_response}
 
     return {"answer": response.content}
-
-def format_context(state: dict):
-    """Format context documents into a single string."""
-    context = state.get("context", [])
-    context_text = "\n\n".join([doc.page_content for doc in context])
-    # Use detected language if available, otherwise fall back to manual language or default
-    language = state.get("detected_language") or state.get("language", "English")
-    return {
-        "context": context_text,
-        "question": state["question"],
-        "language": language
-    }

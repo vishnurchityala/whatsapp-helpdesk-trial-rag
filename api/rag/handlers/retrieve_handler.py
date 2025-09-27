@@ -1,7 +1,6 @@
-from langchain_community.document_loaders import TextLoader
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
-from pinecone import Pinecone, ServerlessSpec
+from pinecone import Pinecone
 from langdetect import detect
 import os
 import logging
@@ -13,11 +12,35 @@ load_dotenv()
 logging.basicConfig(level=logging.DEBUG)
 
 # Load environment variables
-hf_token = os.getenv("HF_TOKEN")
+google_api_key = os.getenv("GOOGLE_API_KEY")
 pc_api_key = os.getenv("PINECONE_API_KEY")
+
+# Set Google API key as environment variable for Google client
+if google_api_key:
+    os.environ["GOOGLE_API_KEY"] = google_api_key
+    logging.info(f"Google API key set: {google_api_key[:10]}...")
+else:
+    logging.error("GOOGLE_API_KEY not found in environment variables")
 
 # Initialize Pinecone client
 pc = Pinecone(api_key=pc_api_key)
+
+# Initialize embeddings once at module level
+if not google_api_key:
+    raise ValueError("GOOGLE_API_KEY environment variable is required")
+
+try:
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/embedding-001",
+        google_api_key=google_api_key
+    )
+    logging.info("GoogleGenerativeAIEmbeddings initialized successfully")
+except Exception as e:
+    logging.error(f"Failed to initialize GoogleGenerativeAIEmbeddings: {e}")
+    # Fallback: try without explicit key (rely on environment)
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/embedding-001"
+    )
 
 # Function to retrieve documents using Pinecone
 def retrieve_documents(question: str) -> dict:
@@ -34,30 +57,13 @@ def retrieve_documents(question: str) -> dict:
     detected_language = detect(question)
     logging.debug(f"Detected language: {detected_language}")
 
-    # Always use English documents for retrieval
-    path_to_document = "api/rag/data/english_data.txt"
+    # Connect to existing Pinecone index using global embeddings
     index_name = "rag-english"
-
-    # Load documents and create embeddings
-    loader = TextLoader(path_to_document)
-    docs = loader.load()
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        model_kwargs={"token": hf_token}
+    
+    vectorstore = PineconeVectorStore(
+        index_name=index_name,
+        embedding=embeddings
     )
-
-    # Create or load Pinecone vector store
-    if index_name not in [index.name for index in pc.list_indexes()]:
-        vectorstore = PineconeVectorStore.from_documents(
-            documents=docs,
-            embedding=embeddings,
-            index_name=index_name
-        )
-    else:
-        vectorstore = PineconeVectorStore(
-            index_name=index_name,
-            embedding=embeddings
-        )
 
     # Perform similarity search
     retrieved_docs = vectorstore.similarity_search(question, k=5)
